@@ -346,7 +346,7 @@ export default function BlacklineSignatureApp() {
     downloadText(`blackline_signature_${state.meta.date || todayISO()}.csv`, toCSV(state));
   };
 
-  const togglePhaseTimer = (pid) => {
+ const togglePhaseTimer = (pid: string) => {
      setState((prev: any) => {
       const now = Date.now();
       const current = prev.phaseTimers[pid];
