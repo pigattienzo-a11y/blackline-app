@@ -344,7 +344,7 @@ export default function BlacklineSignatureApp() {
   };
 
   const togglePhaseTimer = (pid) => {
-    setState((prev: any)
+     setState((prev: any) => {
       const now = Date.now();
       const current = prev.phaseTimers[pid];
       const nextPhaseTimers = { ...prev.phaseTimers };
