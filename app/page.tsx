@@ -266,7 +266,7 @@ export default function BlacklineSignatureApp() {
 
         // Phase timers
         const nextPhaseTimers = { ...prev.phaseTimers };
-        for (const [pid, t] of Object.entries(prev.phaseTimers)) {
+        for (const [pid, t] of Object.entries(prev.phaseTimers) as [string, any][]) {
           if (t.running && t.startedAt) {
             const elapsed = t.elapsedMs + (now - t.startedAt);
             nextPhaseTimers[pid] = { running: true, startedAt: now, elapsedMs: elapsed };
