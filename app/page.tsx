@@ -360,7 +360,7 @@ export default function BlacklineSignatureApp() {
     });
   };
 
-  const resetPhaseTimer = (pid) => {
+  const resetPhaseTimer = (pid: string) => {
     setState((prev: any) => ({
       ...prev,
       phaseTimers: { ...prev.phaseTimers, [pid]: { running: false, startedAt: null, elapsedMs: 0 } },
