@@ -139,7 +139,11 @@ const PROTOCOL = [
     timeMin: 20,
     overlap: "Changement de zone (A contrôle AR, B contrôle AV). Contrôle croisé obligatoire avant livraison.",
     tasks: {
-      A: ["Contrôle zone AR (vitres, plastiques, banquette)", "Micro-détails extérieurs : logos / grilles", "Retouches finales"],
+      A: [
+        "Contrôle zone AR (vitres, plastiques, banquette)",
+        "Micro-détails extérieurs : logos / grilles",
+        "Retouches finales",
+      ],
       B: ["Contrôle zone AV (volant, console, vitres)", "Dressing pneus + plastiques extérieurs", "Retouches finales"],
     },
     checklist: [
@@ -169,26 +173,59 @@ const PROTOCOL = [
       "Débrief rapide noté (amélioration)",
     ],
   },
-];
+] as const;
 
-function buildInitialState() {
-  const base = {
-    meta: {
-      client: "",
-      vehicule: "",
-      adresse: "",
-      date: todayISO(),
-      heure: "",
-    },
+type ProtocolPhase = (typeof PROTOCOL)[number];
+type PhaseId = ProtocolPhase["id"];
+
+type TimerState = {
+  running: boolean;
+  startedAt: number | null;
+  elapsedMs: number;
+};
+
+type AppState = {
+  meta: {
+    client: string;
+    vehicule: string;
+    adresse: string;
+    date: string;
+    heure: string;
+  };
+  globalTimer: TimerState;
+  phaseTimers: Record<PhaseId, TimerState>;
+  done: Record<PhaseId, Record<number, boolean>>;
+  notes: Record<PhaseId, Record<number, string>>;
+  phaseNotes: Record<PhaseId, string>;
+  debrief: { tempsTotal: string; exterieur: string; interieur: string; extraction: string; tropLong: string; improvement: string };
+  ui: { compact: boolean; showTasks: boolean; search: string };
+};
+
+function buildInitialState(): AppState {
+  const phaseTimers = Object.fromEntries(
+    PROTOCOL.map((p) => [p.id, { running: false, startedAt: null, elapsedMs: 0 }])
+  ) as Record<PhaseId, TimerState>;
+
+  const done = Object.fromEntries(
+    PROTOCOL.map((p) => [p.id, Object.fromEntries(p.checklist.map((_, i) => [i, false]))])
+  ) as Record<PhaseId, Record<number, boolean>>;
+
+  const notes = Object.fromEntries(
+    PROTOCOL.map((p) => [p.id, Object.fromEntries(p.checklist.map((_, i) => [i, ""]))])
+  ) as Record<PhaseId, Record<number, string>>;
+
+  const phaseNotes = Object.fromEntries(PROTOCOL.map((p) => [p.id, ""])) as Record<PhaseId, string>;
+
+  return {
+    meta: { client: "", vehicule: "", adresse: "", date: todayISO(), heure: "" },
     globalTimer: { running: false, startedAt: null, elapsedMs: 0 },
-    phaseTimers: Object.fromEntries(PROTOCOL.map((p) => [p.id, { running: false, startedAt: null, elapsedMs: 0 }])),
-    done: Object.fromEntries(PROTOCOL.map((p) => [p.id, Object.fromEntries(p.checklist.map((_, i) => [i, false]))])),
-    notes: Object.fromEntries(PROTOCOL.map((p) => [p.id, Object.fromEntries(p.checklist.map((_, i) => [i, ""]))])),
-    phaseNotes: Object.fromEntries(PROTOCOL.map((p) => [p.id, ""])),
+    phaseTimers,
+    done,
+    notes,
+    phaseNotes,
     debrief: { tempsTotal: "", exterieur: "", interieur: "", extraction: "", tropLong: "", improvement: "" },
     ui: { compact: true, showTasks: true, search: "" },
   };
-  return base;
 }
 
 function downloadText(filename: string, text: string) {
@@ -203,8 +240,8 @@ function downloadText(filename: string, text: string) {
   URL.revokeObjectURL(url);
 }
 
-function toCSV(state: any) {
-  const lines = [];
+function toCSV(state: AppState) {
+  const lines: string[] = [];
   lines.push(["phase", "checkpoint", "done", "note"].join(","));
   PROTOCOL.forEach((p) => {
     p.checklist.forEach((c, i) => {
@@ -216,13 +253,16 @@ function toCSV(state: any) {
   return lines.join("\n");
 }
 
+type FilteredItem = { c: string; i: number };
+type FilteredPhase = ProtocolPhase & { _filtered?: FilteredItem[] };
+
 export default function BlacklineSignatureApp() {
-  const [state, setState] = useState(() => {
+  const [state, setState] = useState<AppState>(() => {
     try {
       const raw = localStorage.getItem(LS_KEY);
       if (!raw) return buildInitialState();
-      const parsed = JSON.parse(raw);
-      // Basic shape-merge to tolerate future updates
+      const parsed = JSON.parse(raw) as Partial<AppState>;
+
       const fresh = buildInitialState();
       return {
         ...fresh,
@@ -241,32 +281,28 @@ export default function BlacklineSignatureApp() {
     }
   });
 
- const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Autosave
   useEffect(() => {
     localStorage.setItem(LS_KEY, JSON.stringify(state));
   }, [state]);
 
-  // Timers tick
   useEffect(() => {
     const interval = setInterval(() => {
-      setState((prev: any) => {
+      setState((prev) => {
         let changed = false;
         const now = Date.now();
 
-        const next = { ...prev };
+        const next: AppState = { ...prev };
 
-        // Global timer
         if (prev.globalTimer.running && prev.globalTimer.startedAt) {
           const elapsed = prev.globalTimer.elapsedMs + (now - prev.globalTimer.startedAt);
           next.globalTimer = { running: true, startedAt: now, elapsedMs: elapsed };
           changed = true;
         }
 
-        // Phase timers
-        const nextPhaseTimers = { ...prev.phaseTimers };
-        for (const [pid, t] of Object.entries(prev.phaseTimers) as [string, any][]) {
+        const nextPhaseTimers: AppState["phaseTimers"] = { ...prev.phaseTimers };
+        for (const [pid, t] of Object.entries(prev.phaseTimers) as [PhaseId, TimerState][]) {
           if (t.running && t.startedAt) {
             const elapsed = t.elapsedMs + (now - t.startedAt);
             nextPhaseTimers[pid] = { running: true, startedAt: now, elapsedMs: elapsed };
@@ -278,6 +314,7 @@ export default function BlacklineSignatureApp() {
         return changed ? next : prev;
       });
     }, 1000);
+
     tickRef.current = interval;
     return () => clearInterval(interval);
   }, []);
@@ -293,30 +330,27 @@ export default function BlacklineSignatureApp() {
     return { totalChecks, doneChecks, pct };
   }, [state.done]);
 
-  const filteredProtocol = useMemo(() => {
+  const filteredProtocol = useMemo<FilteredPhase[]>(() => {
     const q = (state.ui.search || "").trim().toLowerCase();
-    if (!q) return PROTOCOL;
-    return PROTOCOL.map((p) => {
+    if (!q) return PROTOCOL as unknown as FilteredPhase[];
+
+    const mapped = (PROTOCOL as unknown as FilteredPhase[]).map((p) => {
       const items = p.checklist
         .map((c, i) => ({ c, i }))
         .filter(({ c }) => c.toLowerCase().includes(q));
       return { ...p, _filtered: items };
-    }).filter((p) => (p._filtered?.length || 0) > 0 || p.title.toLowerCase().includes(q));
+    });
+
+    return mapped.filter((p) => (p._filtered?.length || 0) > 0 || p.title.toLowerCase().includes(q));
   }, [state.ui.search]);
 
   const toggleGlobal = () => {
-   setState((prev: any) => {
+    setState((prev) => {
       const now = Date.now();
       if (prev.globalTimer.running) {
-        return {
-          ...prev,
-          globalTimer: { running: false, startedAt: null, elapsedMs: prev.globalTimer.elapsedMs },
-        };
+        return { ...prev, globalTimer: { running: false, startedAt: null, elapsedMs: prev.globalTimer.elapsedMs } };
       }
-      return {
-        ...prev,
-        globalTimer: { running: true, startedAt: now, elapsedMs: prev.globalTimer.elapsedMs },
-      };
+      return { ...prev, globalTimer: { running: true, startedAt: now, elapsedMs: prev.globalTimer.elapsedMs } };
     });
   };
 
@@ -331,14 +365,14 @@ export default function BlacklineSignatureApp() {
       meta: state.meta,
       globalElapsedMs: state.globalTimer.elapsedMs,
       phaseElapsedMs: Object.fromEntries(
-  (Object.entries(state.phaseTimers) as [string, any][])
-    .map(([k, v]) => [k, v.elapsedMs])
-),
+        (Object.entries(state.phaseTimers) as [PhaseId, TimerState][]).map(([k, v]) => [k, v.elapsedMs])
+      ) as Record<string, number>,
       done: state.done,
       notes: state.notes,
       phaseNotes: state.phaseNotes,
       debrief: state.debrief,
     };
+
     downloadText(`blackline_signature_${state.meta.date || todayISO()}.json`, JSON.stringify(payload, null, 2));
   };
 
@@ -346,11 +380,12 @@ export default function BlacklineSignatureApp() {
     downloadText(`blackline_signature_${state.meta.date || todayISO()}.csv`, toCSV(state));
   };
 
- const togglePhaseTimer = (pid: string) => {
-     setState((prev: any) => {
+  const togglePhaseTimer = (pid: PhaseId) => {
+    setState((prev) => {
       const now = Date.now();
       const current = prev.phaseTimers[pid];
       const nextPhaseTimers = { ...prev.phaseTimers };
+
       if (current.running) {
         nextPhaseTimers[pid] = { running: false, startedAt: null, elapsedMs: current.elapsedMs };
       } else {
@@ -360,34 +395,28 @@ export default function BlacklineSignatureApp() {
     });
   };
 
-  const resetPhaseTimer = (pid: string) => {
-    setState((prev: any) => ({
+  const resetPhaseTimer = (pid: PhaseId) => {
+    setState((prev) => ({
       ...prev,
       phaseTimers: { ...prev.phaseTimers, [pid]: { running: false, startedAt: null, elapsedMs: 0 } },
     }));
   };
 
-  const toggleCheck = (pid, idx) => {
-    setState((prev: any)=> ({
+  const toggleCheck = (pid: PhaseId, idx: number) => {
+    setState((prev) => ({
       ...prev,
-      done: {
-        ...prev.done,
-        [pid]: { ...prev.done[pid], [idx]: !prev.done[pid][idx] },
-      },
+      done: { ...prev.done, [pid]: { ...prev.done[pid], [idx]: !prev.done[pid][idx] } },
     }));
   };
 
-  const setNote = (pid, idx, val) => {
-    setState((prev: any)=> ({
+  const setNote = (pid: PhaseId, idx: number, val: string) => {
+    setState((prev) => ({
       ...prev,
-      notes: {
-        ...prev.notes,
-        [pid]: { ...prev.notes[pid], [idx]: val },
-      },
+      notes: { ...prev.notes, [pid]: { ...prev.notes[pid], [idx]: val } },
     }));
   };
 
-  const phaseProgress = (pid) => {
+  const phaseProgress = (pid: PhaseId) => {
     const p = PROTOCOL.find((x) => x.id === pid);
     if (!p) return 0;
     const total = p.checklist.length;
@@ -398,22 +427,37 @@ export default function BlacklineSignatureApp() {
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900">
       <div className="max-w-3xl mx-auto p-3 sm:p-6 space-y-4">
-        {/* Header */}
         <Card className="rounded-2xl shadow-sm">
           <CardHeader className="pb-3">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <CardTitle className="text-xl sm:text-2xl">BLACKLINE — Protocole Signature</CardTitle>
                 <div className="text-sm text-neutral-600 mt-1 flex items-center gap-2">
-                  <Badge variant="secondary" className="rounded-xl">V2 Terrain</Badge>
-                  <span className="inline-flex items-center gap-1"><Timer className="w-4 h-4" /> {msToHMS(state.globalTimer.elapsedMs)}</span>
+                  <Badge variant="secondary" className="rounded-xl">
+                    V2 Terrain
+                  </Badge>
+                  <span className="inline-flex items-center gap-1">
+                    <Timer className="w-4 h-4" /> {msToHMS(state.globalTimer.elapsedMs)}
+                  </span>
                   <span className="text-neutral-400">•</span>
-                  <span className="inline-flex items-center gap-1"><CheckCircle2 className="w-4 h-4" /> {totals.doneChecks}/{totals.totalChecks} ({totals.pct}%)</span>
+                  <span className="inline-flex items-center gap-1">
+                    <CheckCircle2 className="w-4 h-4" /> {totals.doneChecks}/{totals.totalChecks} ({totals.pct}%)
+                  </span>
                 </div>
               </div>
               <div className="flex gap-2">
                 <Button onClick={toggleGlobal} variant={state.globalTimer.running ? "secondary" : "default"} className="rounded-2xl">
-                  {state.globalTimer.running ? (<><Pause className="w-4 h-4 mr-2" />Pause</>) : (<><Play className="w-4 h-4 mr-2" />Start</>)}
+                  {state.globalTimer.running ? (
+                    <>
+                      <Pause className="w-4 h-4 mr-2" />
+                      Pause
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-4 h-4 mr-2" />
+                      Start
+                    </>
+                  )}
                 </Button>
                 <Button onClick={resetAll} variant="outline" className="rounded-2xl">
                   <RotateCcw className="w-4 h-4" />
@@ -421,14 +465,40 @@ export default function BlacklineSignatureApp() {
               </div>
             </div>
           </CardHeader>
+
           <CardContent className="space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Input value={state.meta.client} onChange={(e) => setState((p) => ({ ...p, meta: { ...p.meta, client: e.target.value } }))} placeholder="Client" className="rounded-2xl" />
-              <Input value={state.meta.vehicule} onChange={(e) => setState((p) => ({ ...p, meta: { ...p.meta, vehicule: e.target.value } }))} placeholder="Véhicule" className="rounded-2xl" />
-              <Input value={state.meta.adresse} onChange={(e) => setState((p) => ({ ...p, meta: { ...p.meta, adresse: e.target.value } }))} placeholder="Adresse" className="rounded-2xl" />
+              <Input
+                value={state.meta.client}
+                onChange={(e) => setState((p) => ({ ...p, meta: { ...p.meta, client: e.target.value } }))}
+                placeholder="Client"
+                className="rounded-2xl"
+              />
+              <Input
+                value={state.meta.vehicule}
+                onChange={(e) => setState((p) => ({ ...p, meta: { ...p.meta, vehicule: e.target.value } }))}
+                placeholder="Véhicule"
+                className="rounded-2xl"
+              />
+              <Input
+                value={state.meta.adresse}
+                onChange={(e) => setState((p) => ({ ...p, meta: { ...p.meta, adresse: e.target.value } }))}
+                placeholder="Adresse"
+                className="rounded-2xl"
+              />
               <div className="grid grid-cols-2 gap-3">
-                <Input type="date" value={state.meta.date} onChange={(e) => setState((p) => ({ ...p, meta: { ...p.meta, date: e.target.value } }))} className="rounded-2xl" />
-                <Input value={state.meta.heure} onChange={(e) => setState((p) => ({ ...p, meta: { ...p.meta, heure: e.target.value } }))} placeholder="Heure" className="rounded-2xl" />
+                <Input
+                  type="date"
+                  value={state.meta.date}
+                  onChange={(e) => setState((p) => ({ ...p, meta: { ...p.meta, date: e.target.value } }))}
+                  className="rounded-2xl"
+                />
+                <Input
+                  value={state.meta.heure}
+                  onChange={(e) => setState((p) => ({ ...p, meta: { ...p.meta, heure: e.target.value } }))}
+                  placeholder="Heure"
+                  className="rounded-2xl"
+                />
               </div>
             </div>
 
@@ -446,10 +516,12 @@ export default function BlacklineSignatureApp() {
 
               <div className="flex flex-wrap gap-2">
                 <Button variant="outline" className="rounded-2xl" onClick={exportCSV}>
-                  <Download className="w-4 h-4 mr-2" />CSV
+                  <Download className="w-4 h-4 mr-2" />
+                  CSV
                 </Button>
                 <Button variant="outline" className="rounded-2xl" onClick={exportJSON}>
-                  <Download className="w-4 h-4 mr-2" />JSON
+                  <Download className="w-4 h-4 mr-2" />
+                  JSON
                 </Button>
               </div>
             </div>
@@ -464,12 +536,13 @@ export default function BlacklineSignatureApp() {
                   className="pl-9 rounded-2xl"
                 />
               </div>
-              <Badge variant="secondary" className="rounded-xl">Autosave</Badge>
+              <Badge variant="secondary" className="rounded-xl">
+                Autosave
+              </Badge>
             </div>
           </CardContent>
         </Card>
 
-        {/* Phases */}
         <div className="space-y-4">
           {filteredProtocol.map((p) => {
             const t = state.phaseTimers[p.id];
@@ -484,24 +557,38 @@ export default function BlacklineSignatureApp() {
                     <div className="space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <CardTitle className="text-base sm:text-lg">{p.title}</CardTitle>
-                        <Badge className="rounded-xl" variant={prog === 100 ? "default" : "secondary"}>{prog}%</Badge>
-                        <Badge className="rounded-xl" variant={overTarget ? "destructive" : "secondary"}>Cible: {p.timeMin} min</Badge>
+                        <Badge className="rounded-xl" variant={prog === 100 ? "default" : "secondary"}>
+                          {prog}%
+                        </Badge>
+                        <Badge className="rounded-xl" variant={overTarget ? "destructive" : "secondary"}>
+                          Cible: {p.timeMin} min
+                        </Badge>
                       </div>
                       <div className="text-sm text-neutral-600 flex flex-wrap items-center gap-2">
-                        <span className="inline-flex items-center gap-1"><Timer className="w-4 h-4" /> {msToHMS(t.elapsedMs)}</span>
+                        <span className="inline-flex items-center gap-1">
+                          <Timer className="w-4 h-4" /> {msToHMS(t.elapsedMs)}
+                        </span>
                         <span className="text-neutral-300">|</span>
                         <span className="text-neutral-600">Transition: {p.overlap}</span>
                       </div>
                     </div>
                     <div className="flex gap-2">
-                      <Button
-                        onClick={() => togglePhaseTimer(p.id)}
-                        variant={t.running ? "secondary" : "default"}
-                        className="rounded-2xl"
-                      >
-                        {t.running ? (<><Pause className="w-4 h-4 mr-2" />Pause</>) : (<><Play className="w-4 h-4 mr-2" />Start</>)}
+                      <Button onClick={() => togglePhaseTimer(p.id)} variant={t.running ? "secondary" : "default"} className="rounded-2xl">
+                        {t.running ? (
+                          <>
+                            <Pause className="w-4 h-4 mr-2" />
+                            Pause
+                          </>
+                        ) : (
+                          <>
+                            <Play className="w-4 h-4 mr-2" />
+                            Start
+                          </>
+                        )}
                       </Button>
-                      <Button onClick={() => resetPhaseTimer(p.id)} variant="outline" className="rounded-2xl">Reset</Button>
+                      <Button onClick={() => resetPhaseTimer(p.id)} variant="outline" className="rounded-2xl">
+                        Reset
+                      </Button>
                     </div>
                   </div>
                 </CardHeader>
@@ -512,22 +599,31 @@ export default function BlacklineSignatureApp() {
                       <div className="rounded-2xl border bg-white p-3">
                         <div className="flex items-center justify-between">
                           <div className="font-semibold">Personne A</div>
-                          <Badge variant="secondary" className="rounded-xl">Zone</Badge>
+                          <Badge variant="secondary" className="rounded-xl">
+                            Zone
+                          </Badge>
                         </div>
                         <ul className="mt-2 space-y-1 text-sm text-neutral-700">
                           {p.tasks.A.map((x, idx) => (
-                            <li key={idx} className="leading-snug">• {x}</li>
+                            <li key={idx} className="leading-snug">
+                              • {x}
+                            </li>
                           ))}
                         </ul>
                       </div>
+
                       <div className="rounded-2xl border bg-white p-3">
                         <div className="flex items-center justify-between">
                           <div className="font-semibold">Personne B</div>
-                          <Badge variant="secondary" className="rounded-xl">Zone</Badge>
+                          <Badge variant="secondary" className="rounded-xl">
+                            Zone
+                          </Badge>
                         </div>
                         <ul className="mt-2 space-y-1 text-sm text-neutral-700">
                           {p.tasks.B.map((x, idx) => (
-                            <li key={idx} className="leading-snug">• {x}</li>
+                            <li key={idx} className="leading-snug">
+                              • {x}
+                            </li>
                           ))}
                         </ul>
                       </div>
@@ -537,7 +633,9 @@ export default function BlacklineSignatureApp() {
                   <div className="rounded-2xl border bg-white">
                     <div className="p-3">
                       <div className="font-semibold">Checklist</div>
-                      <div className="text-xs text-neutral-500 mt-1">Cochez au fur et à mesure. Ajoutez une note si besoin (ex: "tache siège", "temps +5min").</div>
+                      <div className="text-xs text-neutral-500 mt-1">
+                        Cochez au fur et à mesure. Ajoutez une note si besoin (ex: &quot;tache siège&quot;, &quot;temps +5min&quot;).
+                      </div>
                     </div>
                     <Separator />
 
@@ -566,7 +664,9 @@ export default function BlacklineSignatureApp() {
                       <div className="mt-3">
                         <Textarea
                           value={state.phaseNotes[p.id] || ""}
-                          onChange={(e) => setState((prev: any) => ({ ...prev, phaseNotes: { ...prev.phaseNotes, [p.id]: e.target.value } }))}
+                          onChange={(e) =>
+                            setState((prev) => ({ ...prev, phaseNotes: { ...prev.phaseNotes, [p.id]: e.target.value } }))
+                          }
                           placeholder="Note de phase (ex: ce qui a ralenti / amélioration)…"
                           className="rounded-2xl min-h-[72px]"
                         />
@@ -579,7 +679,6 @@ export default function BlacklineSignatureApp() {
           })}
         </div>
 
-        {/* Debrief */}
         <Card className="rounded-2xl shadow-sm">
           <CardHeader className="pb-3">
             <CardTitle className="text-lg">Débrief (fin de prestation)</CardTitle>
@@ -640,13 +739,16 @@ export default function BlacklineSignatureApp() {
                   downloadText(`blackline_debrief_${state.meta.date || todayISO()}.json`, JSON.stringify(payload, null, 2));
                 }}
               >
-                <Download className="w-4 h-4 mr-2" />Exporter Débrief
+                <Download className="w-4 h-4 mr-2" />
+                Exporter Débrief
               </Button>
               <Button
                 variant="outline"
                 className="rounded-2xl"
                 onClick={() => {
-                  navigator.clipboard?.writeText("Merci pour votre confiance 🙏\nSi le résultat vous satisfait, un avis Google nous aide énormément : <LIEN>");
+                  navigator.clipboard?.writeText(
+                    "Merci pour votre confiance 🙏\nSi le résultat vous satisfait, un avis Google nous aide énormément : <LIEN>"
+                  );
                 }}
               >
                 Copier message avis
