@@ -19,7 +19,7 @@ import { Download, RotateCcw, Play, Pause, CheckCircle2, Timer, Search } from "l
 
 const LS_KEY = "blackline_signature_v2_state";
 
-function msToHMS(ms) {
+function msToHMS(ms: number) {
   const total = Math.max(0, Math.floor(ms / 1000));
   const h = Math.floor(total / 3600);
   const m = Math.floor((total % 3600) / 60);
@@ -28,7 +28,7 @@ function msToHMS(ms) {
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
 }
 
-function todayISO() {
+function todayISO(): string {
   const d = new Date();
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
