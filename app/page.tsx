@@ -251,7 +251,7 @@ export default function BlacklineSignatureApp() {
   // Timers tick
   useEffect(() => {
     const interval = setInterval(() => {
-      setState((prev) => {
+      setState((prev: any) => {
         let changed = false;
         const now = Date.now();
 
