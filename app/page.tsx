@@ -241,7 +241,7 @@ export default function BlacklineSignatureApp() {
     }
   });
 
-  const tickRef = useRef(null);
+ const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Autosave
   useEffect(() => {
