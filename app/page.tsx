@@ -330,7 +330,10 @@ export default function BlacklineSignatureApp() {
       exportedAt: new Date().toISOString(),
       meta: state.meta,
       globalElapsedMs: state.globalTimer.elapsedMs,
-      phaseElapsedMs: Object.fromEntries(Object.entries(state.phaseTimers).map(([k, v]) => [k, v.elapsedMs])),
+      phaseElapsedMs: Object.fromEntries(
+  (Object.entries(state.phaseTimers) as [string, any][])
+    .map(([k, v]) => [k, v.elapsedMs])
+),
       done: state.done,
       notes: state.notes,
       phaseNotes: state.phaseNotes,
