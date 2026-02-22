@@ -203,7 +203,7 @@ function downloadText(filename: string, text: string) {
   URL.revokeObjectURL(url);
 }
 
-function toCSV(state) {
+function toCSV(state: any) {
   const lines = [];
   lines.push(["phase", "checkpoint", "done", "note"].join(","));
   PROTOCOL.forEach((p) => {
