@@ -305,7 +305,7 @@ export default function BlacklineSignatureApp() {
   }, [state.ui.search]);
 
   const toggleGlobal = () => {
-    setState((prev) => {
+   setState((prev: any) => {
       const now = Date.now();
       if (prev.globalTimer.running) {
         return {
@@ -344,7 +344,7 @@ export default function BlacklineSignatureApp() {
   };
 
   const togglePhaseTimer = (pid) => {
-    setState((prev) => {
+    setState((prev: any)
       const now = Date.now();
       const current = prev.phaseTimers[pid];
       const nextPhaseTimers = { ...prev.phaseTimers };
@@ -358,14 +358,14 @@ export default function BlacklineSignatureApp() {
   };
 
   const resetPhaseTimer = (pid) => {
-    setState((prev) => ({
+    setState((prev: any) => ({
       ...prev,
       phaseTimers: { ...prev.phaseTimers, [pid]: { running: false, startedAt: null, elapsedMs: 0 } },
     }));
   };
 
   const toggleCheck = (pid, idx) => {
-    setState((prev) => ({
+    setState((prev: any)=> ({
       ...prev,
       done: {
         ...prev.done,
@@ -375,7 +375,7 @@ export default function BlacklineSignatureApp() {
   };
 
   const setNote = (pid, idx, val) => {
-    setState((prev) => ({
+    setState((prev: any)=> ({
       ...prev,
       notes: {
         ...prev.notes,
@@ -563,7 +563,7 @@ export default function BlacklineSignatureApp() {
                       <div className="mt-3">
                         <Textarea
                           value={state.phaseNotes[p.id] || ""}
-                          onChange={(e) => setState((prev) => ({ ...prev, phaseNotes: { ...prev.phaseNotes, [p.id]: e.target.value } }))}
+                          onChange={(e) => setState((prev: any) => ({ ...prev, phaseNotes: { ...prev.phaseNotes, [p.id]: e.target.value } }))}
                           placeholder="Note de phase (ex: ce qui a ralenti / amélioration)…"
                           className="rounded-2xl min-h-[72px]"
                         />
