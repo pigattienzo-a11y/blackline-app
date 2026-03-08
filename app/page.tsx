@@ -1,5 +1,6 @@
 "use client";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+
+import React, { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,16 +9,21 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Download, RotateCcw, Play, Pause, CheckCircle2, Timer, Search } from "lucide-react";
+import {
+  Download,
+  RotateCcw,
+  Play,
+  Pause,
+  CheckCircle2,
+  Timer,
+  Search,
+} from "lucide-react";
+import VehicleCheckIn, {
+  type PhotoCollection,
+  type PhotoKey,
+} from "@/components/VehicleCheckIn";
 
-// BLACKLINE – Mini Web App (mobile-first)
-// - Checklist par phases + répartition A/B
-// - Timers (global + par phase)
-// - Notes
-// - Sauvegarde automatique (localStorage)
-// - Export JSON/CSV
-
-const LS_KEY = "blackline_signature_v2_state";
+const LS_KEY = "blackline_signature_v3_state";
 
 function msToHMS(ms: number) {
   const total = Math.max(0, Math.floor(ms / 1000));
@@ -36,12 +42,47 @@ function todayISO(): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+const PHOTO_LABELS: Record<PhotoKey, string> = {
+  frontLeft: "Avant gauche",
+  frontRight: "Avant droit",
+  rearLeft: "Arrière gauche",
+  rearRight: "Arrière droit",
+  interior: "Intérieur",
+  damage: "Défaut visible",
+};
+
+function buildEmptyPhotoCollection(): PhotoCollection {
+  return {
+    frontLeft: "",
+    frontRight: "",
+    rearLeft: "",
+    rearRight: "",
+    interior: "",
+    damage: "",
+  };
+}
+
+function summarizePhotos(photos: PhotoCollection) {
+  const items = (Object.keys(photos) as PhotoKey[]).map((key) => ({
+    key,
+    label: PHOTO_LABELS[key],
+    captured: Boolean(photos[key]),
+  }));
+
+  return {
+    total: items.length,
+    captured: items.filter((item) => item.captured).length,
+    items,
+  };
+}
+
 const PROTOCOL = [
   {
     id: "p0",
     title: "PHASE 0 — Installation & Diagnostic",
     timeMin: 10,
-    overlap: "Les deux restent sur la même zone. Valider avec le client les zones critiques + photos AVANT.",
+    overlap:
+      "Les deux restent sur la même zone. Valider avec le client les zones critiques + photos AVANT.",
     tasks: {
       A: [
         "Déployer rallonge noire + sécuriser passage câble",
@@ -71,8 +112,16 @@ const PROTOCOL = [
     overlap:
       "Pendant pose mousse : sortir/installer tapis sur table (sans démarrer l’intérieur). Pendant séchage : lancer la transition.",
     tasks: {
-      A: ["Jantes côté gauche (2 roues) + pneus", "Lavage côté gauche", "Séchage côté gauche + joints visibles"],
-      B: ["Jantes côté droit (2 roues) + pneus", "Lavage côté droit", "Séchage côté droit + joints visibles"],
+      A: [
+        "Jantes côté gauche (2 roues) + pneus",
+        "Lavage côté gauche",
+        "Séchage côté gauche + joints visibles",
+      ],
+      B: [
+        "Jantes côté droit (2 roues) + pneus",
+        "Lavage côté droit",
+        "Séchage côté droit + joints visibles",
+      ],
     },
     checklist: [
       "Jantes : faces + intérieur branches (x4)",
@@ -89,10 +138,19 @@ const PROTOCOL = [
     id: "p2",
     title: "PHASE 2 — Transition & Tapis",
     timeMin: 20,
-    overlap: "Démarrer dès que l’extérieur est rincé et en cours de séchage. Objectif : zéro temps mort.",
+    overlap:
+      "Démarrer dès que l’extérieur est rincé et en cours de séchage. Objectif : zéro temps mort.",
     tasks: {
-      A: ["Sortir tapis + aspiration sur table", "Détachage tapis (si besoin)", "Extraction tapis (si prévue)"],
-      B: ["Coffre : aspiration + micro-détails", "Joints de portes (détails)", "Check eau résiduelle (rétros, logos)"],
+      A: [
+        "Sortir tapis + aspiration sur table",
+        "Détachage tapis (si besoin)",
+        "Extraction tapis (si prévue)",
+      ],
+      B: [
+        "Coffre : aspiration + micro-détails",
+        "Joints de portes (détails)",
+        "Check eau résiduelle (rétros, logos)",
+      ],
     },
     checklist: [
       "Tapis installés sur table (zone propre)",
@@ -137,14 +195,19 @@ const PROTOCOL = [
     id: "p4",
     title: "PHASE 4 — Finitions Premium & Contrôle Croisé",
     timeMin: 20,
-    overlap: "Changement de zone (A contrôle AR, B contrôle AV). Contrôle croisé obligatoire avant livraison.",
+    overlap:
+      "Changement de zone (A contrôle AR, B contrôle AV). Contrôle croisé obligatoire avant livraison.",
     tasks: {
       A: [
         "Contrôle zone AR (vitres, plastiques, banquette)",
         "Micro-détails extérieurs : logos / grilles",
         "Retouches finales",
       ],
-      B: ["Contrôle zone AV (volant, console, vitres)", "Dressing pneus + plastiques extérieurs", "Retouches finales"],
+      B: [
+        "Contrôle zone AV (volant, console, vitres)",
+        "Dressing pneus + plastiques extérieurs",
+        "Retouches finales",
+      ],
     },
     checklist: [
       "Dressing pneus uniforme (pas de surbrillance)",
@@ -159,10 +222,17 @@ const PROTOCOL = [
     id: "p5",
     title: "PHASE 5 — Livraison Client",
     timeMin: 10,
-    overlap: "Présentation guidée : montrer 3 zones transformées. Demande avis au pic de satisfaction.",
+    overlap:
+      "Présentation guidée : montrer 3 zones transformées. Demande avis au pic de satisfaction.",
     tasks: {
-      A: ["Tour extérieur + mise en valeur", "Demande avis Google (phrase standard)"],
-      B: ["Tour intérieur + mise en valeur", "Encaissement + confirmation fin de prestation"],
+      A: [
+        "Tour extérieur + mise en valeur",
+        "Demande avis Google (phrase standard)",
+      ],
+      B: [
+        "Tour intérieur + mise en valeur",
+        "Encaissement + confirmation fin de prestation",
+      ],
     },
     checklist: [
       "Photos APRÈS réalisées (extérieur + intérieur + détail)",
@@ -197,7 +267,16 @@ type AppState = {
   done: Record<PhaseId, Record<number, boolean>>;
   notes: Record<PhaseId, Record<number, string>>;
   phaseNotes: Record<PhaseId, string>;
-  debrief: { tempsTotal: string; exterieur: string; interieur: string; extraction: string; tropLong: string; improvement: string };
+  checkInPhotos: PhotoCollection;
+  checkOutPhotos: PhotoCollection;
+  debrief: {
+    tempsTotal: string;
+    exterieur: string;
+    interieur: string;
+    extraction: string;
+    tropLong: string;
+    improvement: string;
+  };
   ui: { compact: boolean; showTasks: boolean; search: string };
 };
 
@@ -214,7 +293,9 @@ function buildInitialState(): AppState {
     PROTOCOL.map((p) => [p.id, Object.fromEntries(p.checklist.map((_, i) => [i, ""]))])
   ) as Record<PhaseId, Record<number, string>>;
 
-  const phaseNotes = Object.fromEntries(PROTOCOL.map((p) => [p.id, ""])) as Record<PhaseId, string>;
+  const phaseNotes = Object.fromEntries(
+    PROTOCOL.map((p) => [p.id, ""])
+  ) as Record<PhaseId, string>;
 
   return {
     meta: { client: "", vehicule: "", adresse: "", date: todayISO(), heure: "" },
@@ -223,7 +304,16 @@ function buildInitialState(): AppState {
     done,
     notes,
     phaseNotes,
-    debrief: { tempsTotal: "", exterieur: "", interieur: "", extraction: "", tropLong: "", improvement: "" },
+    checkInPhotos: buildEmptyPhotoCollection(),
+    checkOutPhotos: buildEmptyPhotoCollection(),
+    debrief: {
+      tempsTotal: "",
+      exterieur: "",
+      interieur: "",
+      extraction: "",
+      tropLong: "",
+      improvement: "",
+    },
     ui: { compact: true, showTasks: true, search: "" },
   };
 }
@@ -241,8 +331,67 @@ function downloadText(filename: string, text: string) {
 }
 
 function toCSV(state: AppState) {
+  const checkIn = summarizePhotos(state.checkInPhotos);
+  const checkOut = summarizePhotos(state.checkOutPhotos);
   const lines: string[] = [];
+
+  lines.push(
+    [
+      "client",
+      "vehicule",
+      "adresse",
+      "date",
+      "heure",
+      "duree_totale",
+      "checks_faits",
+      "checks_total",
+      "checkin_photos",
+      "checkout_photos",
+      "checkin_avant_gauche",
+      "checkin_avant_droit",
+      "checkin_arriere_gauche",
+      "checkin_arriere_droit",
+      "checkin_interieur",
+      "checkin_defaut_visible",
+      "checkout_avant_gauche",
+      "checkout_avant_droit",
+      "checkout_arriere_gauche",
+      "checkout_arriere_droit",
+      "checkout_interieur",
+      "checkout_defaut_visible",
+    ].join(",")
+  );
+
+  lines.push(
+    [
+      `"${state.meta.client.replaceAll('"', '""')}"`,
+      `"${state.meta.vehicule.replaceAll('"', '""')}"`,
+      `"${state.meta.adresse.replaceAll('"', '""')}"`,
+      `"${state.meta.date}"`,
+      `"${state.meta.heure}"`,
+      `"${msToHMS(state.globalTimer.elapsedMs)}"`,
+      totalsForExport(state).doneChecks,
+      totalsForExport(state).totalChecks,
+      checkIn.captured,
+      checkOut.captured,
+      state.checkInPhotos.frontLeft ? 1 : 0,
+      state.checkInPhotos.frontRight ? 1 : 0,
+      state.checkInPhotos.rearLeft ? 1 : 0,
+      state.checkInPhotos.rearRight ? 1 : 0,
+      state.checkInPhotos.interior ? 1 : 0,
+      state.checkInPhotos.damage ? 1 : 0,
+      state.checkOutPhotos.frontLeft ? 1 : 0,
+      state.checkOutPhotos.frontRight ? 1 : 0,
+      state.checkOutPhotos.rearLeft ? 1 : 0,
+      state.checkOutPhotos.rearRight ? 1 : 0,
+      state.checkOutPhotos.interior ? 1 : 0,
+      state.checkOutPhotos.damage ? 1 : 0,
+    ].join(",")
+  );
+
+  lines.push("");
   lines.push(["phase", "checkpoint", "done", "note"].join(","));
+
   PROTOCOL.forEach((p) => {
     p.checklist.forEach((c, i) => {
       const done = state.done[p.id][i] ? "1" : "0";
@@ -250,7 +399,20 @@ function toCSV(state: AppState) {
       lines.push([`"${p.title}"`, `"${c}"`, done, `"${note}"`].join(","));
     });
   });
+
   return lines.join("\n");
+}
+
+function totalsForExport(state: AppState) {
+  let totalChecks = 0;
+  let doneChecks = 0;
+
+  for (const p of PROTOCOL) {
+    totalChecks += p.checklist.length;
+    doneChecks += Object.values(state.done[p.id] || {}).filter(Boolean).length;
+  }
+
+  return { totalChecks, doneChecks };
 }
 
 type FilteredItem = { c: string; i: number };
@@ -261,9 +423,10 @@ export default function BlacklineSignatureApp() {
     try {
       const raw = localStorage.getItem(LS_KEY);
       if (!raw) return buildInitialState();
-      const parsed = JSON.parse(raw) as Partial<AppState>;
 
+      const parsed = JSON.parse(raw) as Partial<AppState>;
       const fresh = buildInitialState();
+
       return {
         ...fresh,
         ...parsed,
@@ -273,6 +436,14 @@ export default function BlacklineSignatureApp() {
         done: { ...fresh.done, ...(parsed.done || {}) },
         notes: { ...fresh.notes, ...(parsed.notes || {}) },
         phaseNotes: { ...fresh.phaseNotes, ...(parsed.phaseNotes || {}) },
+        checkInPhotos: {
+          ...fresh.checkInPhotos,
+          ...(parsed.checkInPhotos || {}),
+        },
+        checkOutPhotos: {
+          ...fresh.checkOutPhotos,
+          ...(parsed.checkOutPhotos || {}),
+        },
         debrief: { ...fresh.debrief, ...(parsed.debrief || {}) },
         ui: { ...fresh.ui, ...(parsed.ui || {}) },
       };
@@ -280,8 +451,6 @@ export default function BlacklineSignatureApp() {
       return buildInitialState();
     }
   });
-
-  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     localStorage.setItem(LS_KEY, JSON.stringify(state));
@@ -292,40 +461,52 @@ export default function BlacklineSignatureApp() {
       setState((prev) => {
         let changed = false;
         const now = Date.now();
-
         const next: AppState = { ...prev };
 
         if (prev.globalTimer.running && prev.globalTimer.startedAt) {
           const elapsed = prev.globalTimer.elapsedMs + (now - prev.globalTimer.startedAt);
-          next.globalTimer = { running: true, startedAt: now, elapsedMs: elapsed };
+          next.globalTimer = {
+            running: true,
+            startedAt: now,
+            elapsedMs: elapsed,
+          };
           changed = true;
         }
 
         const nextPhaseTimers: AppState["phaseTimers"] = { ...prev.phaseTimers };
-        for (const [pid, t] of Object.entries(prev.phaseTimers) as [PhaseId, TimerState][]) {
+
+        for (const [pid, t] of Object.entries(prev.phaseTimers) as [
+          PhaseId,
+          TimerState
+        ][]) {
           if (t.running && t.startedAt) {
             const elapsed = t.elapsedMs + (now - t.startedAt);
-            nextPhaseTimers[pid] = { running: true, startedAt: now, elapsedMs: elapsed };
+            nextPhaseTimers[pid] = {
+              running: true,
+              startedAt: now,
+              elapsedMs: elapsed,
+            };
             changed = true;
           }
         }
-        if (changed) next.phaseTimers = nextPhaseTimers;
 
+        if (changed) next.phaseTimers = nextPhaseTimers;
         return changed ? next : prev;
       });
     }, 1000);
 
-    tickRef.current = interval;
     return () => clearInterval(interval);
   }, []);
 
   const totals = useMemo(() => {
     let totalChecks = 0;
     let doneChecks = 0;
+
     for (const p of PROTOCOL) {
       totalChecks += p.checklist.length;
       doneChecks += Object.values(state.done[p.id] || {}).filter(Boolean).length;
     }
+
     const pct = totalChecks ? Math.round((doneChecks / totalChecks) * 100) : 0;
     return { totalChecks, doneChecks, pct };
   }, [state.done]);
@@ -338,19 +519,38 @@ export default function BlacklineSignatureApp() {
       const items = p.checklist
         .map((c, i) => ({ c, i }))
         .filter(({ c }) => c.toLowerCase().includes(q));
+
       return { ...p, _filtered: items };
     });
 
-    return mapped.filter((p) => (p._filtered?.length || 0) > 0 || p.title.toLowerCase().includes(q));
+    return mapped.filter(
+      (p) => (p._filtered?.length || 0) > 0 || p.title.toLowerCase().includes(q)
+    );
   }, [state.ui.search]);
 
   const toggleGlobal = () => {
     setState((prev) => {
       const now = Date.now();
+
       if (prev.globalTimer.running) {
-        return { ...prev, globalTimer: { running: false, startedAt: null, elapsedMs: prev.globalTimer.elapsedMs } };
+        return {
+          ...prev,
+          globalTimer: {
+            running: false,
+            startedAt: null,
+            elapsedMs: prev.globalTimer.elapsedMs,
+          },
+        };
       }
-      return { ...prev, globalTimer: { running: true, startedAt: now, elapsedMs: prev.globalTimer.elapsedMs } };
+
+      return {
+        ...prev,
+        globalTimer: {
+          running: true,
+          startedAt: now,
+          elapsedMs: prev.globalTimer.elapsedMs,
+        },
+      };
     });
   };
 
@@ -360,24 +560,48 @@ export default function BlacklineSignatureApp() {
   };
 
   const exportJSON = () => {
+    const checkIn = summarizePhotos(state.checkInPhotos);
+    const checkOut = summarizePhotos(state.checkOutPhotos);
+
     const payload = {
       exportedAt: new Date().toISOString(),
-      meta: state.meta,
-      globalElapsedMs: state.globalTimer.elapsedMs,
-      phaseElapsedMs: Object.fromEntries(
-        (Object.entries(state.phaseTimers) as [PhaseId, TimerState][]).map(([k, v]) => [k, v.elapsedMs])
-      ) as Record<string, number>,
-      done: state.done,
-      notes: state.notes,
-      phaseNotes: state.phaseNotes,
-      debrief: state.debrief,
+      prestation: {
+        meta: state.meta,
+        globalElapsedMs: state.globalTimer.elapsedMs,
+        globalElapsedLabel: msToHMS(state.globalTimer.elapsedMs),
+        completion: {
+          doneChecks: totals.doneChecks,
+          totalChecks: totals.totalChecks,
+          percent: totals.pct,
+        },
+        phaseElapsedMs: Object.fromEntries(
+          (Object.entries(state.phaseTimers) as [PhaseId, TimerState][]).map(([k, v]) => [
+            k,
+            v.elapsedMs,
+          ])
+        ) as Record<string, number>,
+        checkInPhotos: checkIn,
+        checkOutPhotos: checkOut,
+        done: state.done,
+        notes: state.notes,
+        phaseNotes: state.phaseNotes,
+        debrief: state.debrief,
+      },
+      exportNote:
+        "Les images brutes ne sont pas incluses dans l’export pour garder un fichier lisible et professionnel.",
     };
 
-    downloadText(`blackline_signature_${state.meta.date || todayISO()}.json`, JSON.stringify(payload, null, 2));
+    downloadText(
+      `blackline_signature_${state.meta.date || todayISO()}.json`,
+      JSON.stringify(payload, null, 2)
+    );
   };
 
   const exportCSV = () => {
-    downloadText(`blackline_signature_${state.meta.date || todayISO()}.csv`, toCSV(state));
+    downloadText(
+      `blackline_signature_${state.meta.date || todayISO()}.csv`,
+      toCSV(state)
+    );
   };
 
   const togglePhaseTimer = (pid: PhaseId) => {
@@ -387,10 +611,19 @@ export default function BlacklineSignatureApp() {
       const nextPhaseTimers = { ...prev.phaseTimers };
 
       if (current.running) {
-        nextPhaseTimers[pid] = { running: false, startedAt: null, elapsedMs: current.elapsedMs };
+        nextPhaseTimers[pid] = {
+          running: false,
+          startedAt: null,
+          elapsedMs: current.elapsedMs,
+        };
       } else {
-        nextPhaseTimers[pid] = { running: true, startedAt: now, elapsedMs: current.elapsedMs };
+        nextPhaseTimers[pid] = {
+          running: true,
+          startedAt: now,
+          elapsedMs: current.elapsedMs,
+        };
       }
+
       return { ...prev, phaseTimers: nextPhaseTimers };
     });
   };
@@ -398,27 +631,57 @@ export default function BlacklineSignatureApp() {
   const resetPhaseTimer = (pid: PhaseId) => {
     setState((prev) => ({
       ...prev,
-      phaseTimers: { ...prev.phaseTimers, [pid]: { running: false, startedAt: null, elapsedMs: 0 } },
+      phaseTimers: {
+        ...prev.phaseTimers,
+        [pid]: { running: false, startedAt: null, elapsedMs: 0 },
+      },
     }));
   };
 
   const toggleCheck = (pid: PhaseId, idx: number) => {
     setState((prev) => ({
       ...prev,
-      done: { ...prev.done, [pid]: { ...prev.done[pid], [idx]: !prev.done[pid][idx] } },
+      done: {
+        ...prev.done,
+        [pid]: { ...prev.done[pid], [idx]: !prev.done[pid][idx] },
+      },
     }));
   };
 
   const setNote = (pid: PhaseId, idx: number, val: string) => {
     setState((prev) => ({
       ...prev,
-      notes: { ...prev.notes, [pid]: { ...prev.notes[pid], [idx]: val } },
+      notes: {
+        ...prev.notes,
+        [pid]: { ...prev.notes[pid], [idx]: val },
+      },
+    }));
+  };
+
+  const setCheckInPhoto = (key: PhotoKey, value: string) => {
+    setState((prev) => ({
+      ...prev,
+      checkInPhotos: {
+        ...prev.checkInPhotos,
+        [key]: value,
+      },
+    }));
+  };
+
+  const setCheckOutPhoto = (key: PhotoKey, value: string) => {
+    setState((prev) => ({
+      ...prev,
+      checkOutPhotos: {
+        ...prev.checkOutPhotos,
+        [key]: value,
+      },
     }));
   };
 
   const phaseProgress = (pid: PhaseId) => {
     const p = PROTOCOL.find((x) => x.id === pid);
     if (!p) return 0;
+
     const total = p.checklist.length;
     const done = Object.values(state.done[pid] || {}).filter(Boolean).length;
     return total ? Math.round((done / total) * 100) : 0;
@@ -427,11 +690,20 @@ export default function BlacklineSignatureApp() {
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900">
       <div className="max-w-3xl mx-auto p-3 sm:p-6 space-y-4">
+        <VehicleCheckIn
+          title="Check-in arrivée véhicule"
+          subtitle="Prends les photos d’état avant de commencer la prestation."
+          photos={state.checkInPhotos}
+          onChange={setCheckInPhoto}
+        />
+
         <Card className="rounded-2xl shadow-sm">
           <CardHeader className="pb-3">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <CardTitle className="text-xl sm:text-2xl">BLACKLINE — Protocole Signature</CardTitle>
+                <CardTitle className="text-xl sm:text-2xl">
+                  BLACKLINE — Protocole Signature
+                </CardTitle>
                 <div className="text-sm text-neutral-600 mt-1 flex items-center gap-2">
                   <Badge variant="secondary" className="rounded-xl">
                     V2 Terrain
@@ -441,12 +713,18 @@ export default function BlacklineSignatureApp() {
                   </span>
                   <span className="text-neutral-400">•</span>
                   <span className="inline-flex items-center gap-1">
-                    <CheckCircle2 className="w-4 h-4" /> {totals.doneChecks}/{totals.totalChecks} ({totals.pct}%)
+                    <CheckCircle2 className="w-4 h-4" /> {totals.doneChecks}/
+                    {totals.totalChecks} ({totals.pct}%)
                   </span>
                 </div>
               </div>
+
               <div className="flex gap-2">
-                <Button onClick={toggleGlobal} variant={state.globalTimer.running ? "secondary" : "default"} className="rounded-2xl">
+                <Button
+                  onClick={toggleGlobal}
+                  variant={state.globalTimer.running ? "secondary" : "default"}
+                  className="rounded-2xl"
+                >
                   {state.globalTimer.running ? (
                     <>
                       <Pause className="w-4 h-4 mr-2" />
@@ -459,7 +737,12 @@ export default function BlacklineSignatureApp() {
                     </>
                   )}
                 </Button>
-                <Button onClick={resetAll} variant="outline" className="rounded-2xl">
+
+                <Button
+                  onClick={resetAll}
+                  variant="outline"
+                  className="rounded-2xl"
+                >
                   <RotateCcw className="w-4 h-4" />
                 </Button>
               </div>
@@ -470,32 +753,61 @@ export default function BlacklineSignatureApp() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Input
                 value={state.meta.client}
-                onChange={(e) => setState((p) => ({ ...p, meta: { ...p.meta, client: e.target.value } }))}
+                onChange={(e) =>
+                  setState((p) => ({
+                    ...p,
+                    meta: { ...p.meta, client: e.target.value },
+                  }))
+                }
                 placeholder="Client"
                 className="rounded-2xl"
               />
+
               <Input
                 value={state.meta.vehicule}
-                onChange={(e) => setState((p) => ({ ...p, meta: { ...p.meta, vehicule: e.target.value } }))}
+                onChange={(e) =>
+                  setState((p) => ({
+                    ...p,
+                    meta: { ...p.meta, vehicule: e.target.value },
+                  }))
+                }
                 placeholder="Véhicule"
                 className="rounded-2xl"
               />
+
               <Input
                 value={state.meta.adresse}
-                onChange={(e) => setState((p) => ({ ...p, meta: { ...p.meta, adresse: e.target.value } }))}
+                onChange={(e) =>
+                  setState((p) => ({
+                    ...p,
+                    meta: { ...p.meta, adresse: e.target.value },
+                  }))
+                }
                 placeholder="Adresse"
                 className="rounded-2xl"
               />
+
               <div className="grid grid-cols-2 gap-3">
                 <Input
                   type="date"
                   value={state.meta.date}
-                  onChange={(e) => setState((p) => ({ ...p, meta: { ...p.meta, date: e.target.value } }))}
+                  onChange={(e) =>
+                    setState((p) => ({
+                      ...p,
+                      meta: { ...p.meta, date: e.target.value },
+                    }))
+                  }
                   className="rounded-2xl"
                 />
+
                 <Input
                   value={state.meta.heure}
-                  onChange={(e) => setState((p) => ({ ...p, meta: { ...p.meta, heure: e.target.value } }))}
+                  onChange={(e) =>
+                    setState((p) => ({
+                      ...p,
+                      meta: { ...p.meta, heure: e.target.value },
+                    }))
+                  }
                   placeholder="Heure"
                   className="rounded-2xl"
                 />
@@ -505,21 +817,47 @@ export default function BlacklineSignatureApp() {
             <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-2">
-                  <Switch checked={state.ui.compact} onCheckedChange={(v) => setState((p) => ({ ...p, ui: { ...p.ui, compact: v } }))} />
+                  <Switch
+                    checked={state.ui.compact}
+                    onCheckedChange={(v) =>
+                      setState((p) => ({
+                        ...p,
+                        ui: { ...p.ui, compact: v },
+                      }))
+                    }
+                  />
                   <span className="text-sm text-neutral-700">Mode compact</span>
                 </div>
+
                 <div className="flex items-center gap-2">
-                  <Switch checked={state.ui.showTasks} onCheckedChange={(v) => setState((p) => ({ ...p, ui: { ...p.ui, showTasks: v } }))} />
+                  <Switch
+                    checked={state.ui.showTasks}
+                    onCheckedChange={(v) =>
+                      setState((p) => ({
+                        ...p,
+                        ui: { ...p.ui, showTasks: v },
+                      }))
+                    }
+                  />
                   <span className="text-sm text-neutral-700">Afficher A/B</span>
                 </div>
               </div>
 
               <div className="flex flex-wrap gap-2">
-                <Button variant="outline" className="rounded-2xl" onClick={exportCSV}>
+                <Button
+                  variant="outline"
+                  className="rounded-2xl"
+                  onClick={exportCSV}
+                >
                   <Download className="w-4 h-4 mr-2" />
                   CSV
                 </Button>
-                <Button variant="outline" className="rounded-2xl" onClick={exportJSON}>
+
+                <Button
+                  variant="outline"
+                  className="rounded-2xl"
+                  onClick={exportJSON}
+                >
                   <Download className="w-4 h-4 mr-2" />
                   JSON
                 </Button>
@@ -531,11 +869,17 @@ export default function BlacklineSignatureApp() {
                 <Search className="w-4 h-4 text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <Input
                   value={state.ui.search}
-                  onChange={(e) => setState((p) => ({ ...p, ui: { ...p.ui, search: e.target.value } }))}
+                  onChange={(e) =>
+                    setState((p) => ({
+                      ...p,
+                      ui: { ...p.ui, search: e.target.value },
+                    }))
+                  }
                   placeholder="Rechercher un checkpoint…"
                   className="pl-9 rounded-2xl"
                 />
               </div>
+
               <Badge variant="secondary" className="rounded-xl">
                 Autosave
               </Badge>
@@ -556,24 +900,40 @@ export default function BlacklineSignatureApp() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <CardTitle className="text-base sm:text-lg">{p.title}</CardTitle>
-                        <Badge className="rounded-xl" variant={prog === 100 ? "default" : "secondary"}>
+                        <CardTitle className="text-base sm:text-lg">
+                          {p.title}
+                        </CardTitle>
+                        <Badge
+                          className="rounded-xl"
+                          variant={prog === 100 ? "default" : "secondary"}
+                        >
                           {prog}%
                         </Badge>
-                        <Badge className="rounded-xl" variant={overTarget ? "destructive" : "secondary"}>
+                        <Badge
+                          className="rounded-xl"
+                          variant={overTarget ? "destructive" : "secondary"}
+                        >
                           Cible: {p.timeMin} min
                         </Badge>
                       </div>
+
                       <div className="text-sm text-neutral-600 flex flex-wrap items-center gap-2">
                         <span className="inline-flex items-center gap-1">
                           <Timer className="w-4 h-4" /> {msToHMS(t.elapsedMs)}
                         </span>
                         <span className="text-neutral-300">|</span>
-                        <span className="text-neutral-600">Transition: {p.overlap}</span>
+                        <span className="text-neutral-600">
+                          Transition: {p.overlap}
+                        </span>
                       </div>
                     </div>
+
                     <div className="flex gap-2">
-                      <Button onClick={() => togglePhaseTimer(p.id)} variant={t.running ? "secondary" : "default"} className="rounded-2xl">
+                      <Button
+                        onClick={() => togglePhaseTimer(p.id)}
+                        variant={t.running ? "secondary" : "default"}
+                        className="rounded-2xl"
+                      >
                         {t.running ? (
                           <>
                             <Pause className="w-4 h-4 mr-2" />
@@ -586,7 +946,12 @@ export default function BlacklineSignatureApp() {
                           </>
                         )}
                       </Button>
-                      <Button onClick={() => resetPhaseTimer(p.id)} variant="outline" className="rounded-2xl">
+
+                      <Button
+                        onClick={() => resetPhaseTimer(p.id)}
+                        variant="outline"
+                        className="rounded-2xl"
+                      >
                         Reset
                       </Button>
                     </div>
@@ -603,6 +968,7 @@ export default function BlacklineSignatureApp() {
                             Zone
                           </Badge>
                         </div>
+
                         <ul className="mt-2 space-y-1 text-sm text-neutral-700">
                           {p.tasks.A.map((x, idx) => (
                             <li key={idx} className="leading-snug">
@@ -619,6 +985,7 @@ export default function BlacklineSignatureApp() {
                             Zone
                           </Badge>
                         </div>
+
                         <ul className="mt-2 space-y-1 text-sm text-neutral-700">
                           {p.tasks.B.map((x, idx) => (
                             <li key={idx} className="leading-snug">
@@ -634,23 +1001,39 @@ export default function BlacklineSignatureApp() {
                     <div className="p-3">
                       <div className="font-semibold">Checklist</div>
                       <div className="text-xs text-neutral-500 mt-1">
-                        Cochez au fur et à mesure. Ajoutez une note si besoin (ex: &quot;tache siège&quot;, &quot;temps +5min&quot;).
+                        Cochez au fur et à mesure. Ajoutez une note si besoin
+                        (ex: &quot;tache siège&quot;, &quot;temps +5min&quot;).
                       </div>
                     </div>
+
                     <Separator />
 
                     <div className={state.ui.compact ? "p-2" : "p-3"}>
                       <div className="space-y-2">
-                        {(filteredItems ? filteredItems : p.checklist.map((c, i) => ({ c, i }))).map(({ c, i }) => (
-                          <div key={i} className="rounded-2xl border p-3 bg-neutral-50">
+                        {(filteredItems
+                          ? filteredItems
+                          : p.checklist.map((c, i) => ({ c, i }))
+                        ).map(({ c, i }) => (
+                          <div
+                            key={i}
+                            className="rounded-2xl border p-3 bg-neutral-50"
+                          >
                             <div className="flex items-start gap-3">
-                              <Checkbox checked={!!state.done[p.id][i]} onCheckedChange={() => toggleCheck(p.id, i)} />
+                              <Checkbox
+                                checked={!!state.done[p.id][i]}
+                                onCheckedChange={() => toggleCheck(p.id, i)}
+                              />
+
                               <div className="flex-1">
-                                <div className="text-sm font-medium leading-snug">{c}</div>
+                                <div className="text-sm font-medium leading-snug">
+                                  {c}
+                                </div>
                                 <div className="mt-2">
                                   <Textarea
                                     value={state.notes[p.id][i] || ""}
-                                    onChange={(e) => setNote(p.id, i, e.target.value)}
+                                    onChange={(e) =>
+                                      setNote(p.id, i, e.target.value)
+                                    }
                                     placeholder="Note (optionnel)…"
                                     className="rounded-2xl min-h-[64px]"
                                   />
@@ -665,7 +1048,13 @@ export default function BlacklineSignatureApp() {
                         <Textarea
                           value={state.phaseNotes[p.id] || ""}
                           onChange={(e) =>
-                            setState((prev) => ({ ...prev, phaseNotes: { ...prev.phaseNotes, [p.id]: e.target.value } }))
+                            setState((prev) => ({
+                              ...prev,
+                              phaseNotes: {
+                                ...prev.phaseNotes,
+                                [p.id]: e.target.value,
+                              },
+                            }))
                           }
                           placeholder="Note de phase (ex: ce qui a ralenti / amélioration)…"
                           className="rounded-2xl min-h-[72px]"
@@ -681,32 +1070,60 @@ export default function BlacklineSignatureApp() {
 
         <Card className="rounded-2xl shadow-sm">
           <CardHeader className="pb-3">
-            <CardTitle className="text-lg">Débrief (fin de prestation)</CardTitle>
-            <div className="text-sm text-neutral-600">Objectif: améliorer à chaque prestation, sans se marcher dessus.</div>
+            <CardTitle className="text-lg">
+              Débrief (fin de prestation)
+            </CardTitle>
+            <div className="text-sm text-neutral-600">
+              Objectif: améliorer à chaque prestation, sans se marcher dessus.
+            </div>
           </CardHeader>
+
           <CardContent className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <Input
                 value={state.debrief.tempsTotal}
-                onChange={(e) => setState((p) => ({ ...p, debrief: { ...p.debrief, tempsTotal: e.target.value } }))}
+                onChange={(e) =>
+                  setState((p) => ({
+                    ...p,
+                    debrief: { ...p.debrief, tempsTotal: e.target.value },
+                  }))
+                }
                 placeholder="Temps total (ex: 2h45)"
                 className="rounded-2xl"
               />
+
               <Input
                 value={state.debrief.extraction}
-                onChange={(e) => setState((p) => ({ ...p, debrief: { ...p.debrief, extraction: e.target.value } }))}
+                onChange={(e) =>
+                  setState((p) => ({
+                    ...p,
+                    debrief: { ...p.debrief, extraction: e.target.value },
+                  }))
+                }
                 placeholder="Extraction (ex: 18 min)"
                 className="rounded-2xl"
               />
+
               <Input
                 value={state.debrief.exterieur}
-                onChange={(e) => setState((p) => ({ ...p, debrief: { ...p.debrief, exterieur: e.target.value } }))}
+                onChange={(e) =>
+                  setState((p) => ({
+                    ...p,
+                    debrief: { ...p.debrief, exterieur: e.target.value },
+                  }))
+                }
                 placeholder="Extérieur (ex: 55 min)"
                 className="rounded-2xl"
               />
+
               <Input
                 value={state.debrief.interieur}
-                onChange={(e) => setState((p) => ({ ...p, debrief: { ...p.debrief, interieur: e.target.value } }))}
+                onChange={(e) =>
+                  setState((p) => ({
+                    ...p,
+                    debrief: { ...p.debrief, interieur: e.target.value },
+                  }))
+                }
                 placeholder="Intérieur (ex: 75 min)"
                 className="rounded-2xl"
               />
@@ -714,13 +1131,24 @@ export default function BlacklineSignatureApp() {
 
             <Textarea
               value={state.debrief.tropLong}
-              onChange={(e) => setState((p) => ({ ...p, debrief: { ...p.debrief, tropLong: e.target.value } }))}
+              onChange={(e) =>
+                setState((p) => ({
+                  ...p,
+                  debrief: { ...p.debrief, tropLong: e.target.value },
+                }))
+              }
               placeholder="Ce qui a pris trop de temps…"
               className="rounded-2xl min-h-[84px]"
             />
+
             <Textarea
               value={state.debrief.improvement}
-              onChange={(e) => setState((p) => ({ ...p, debrief: { ...p.debrief, improvement: e.target.value } }))}
+              onChange={(e) =>
+                setState((p) => ({
+                  ...p,
+                  debrief: { ...p.debrief, improvement: e.target.value },
+                }))
+              }
               placeholder="1 amélioration à appliquer la prochaine fois…"
               className="rounded-2xl min-h-[84px]"
             />
@@ -733,15 +1161,22 @@ export default function BlacklineSignatureApp() {
                     meta: state.meta,
                     globalElapsed: msToHMS(state.globalTimer.elapsedMs),
                     totals,
+                    checkInPhotos: summarizePhotos(state.checkInPhotos),
+                    checkOutPhotos: summarizePhotos(state.checkOutPhotos),
                     debrief: state.debrief,
                     exportedAt: new Date().toISOString(),
                   };
-                  downloadText(`blackline_debrief_${state.meta.date || todayISO()}.json`, JSON.stringify(payload, null, 2));
+
+                  downloadText(
+                    `blackline_debrief_${state.meta.date || todayISO()}.json`,
+                    JSON.stringify(payload, null, 2)
+                  );
                 }}
               >
                 <Download className="w-4 h-4 mr-2" />
                 Exporter Débrief
               </Button>
+
               <Button
                 variant="outline"
                 className="rounded-2xl"
@@ -757,8 +1192,16 @@ export default function BlacklineSignatureApp() {
           </CardContent>
         </Card>
 
+        <VehicleCheckIn
+          title="Check-out sortie véhicule"
+          subtitle="Prends les photos finales avant la livraison client."
+          photos={state.checkOutPhotos}
+          onChange={setCheckOutPhoto}
+        />
+
         <div className="text-xs text-neutral-500 pb-6">
-          Conseils terrain: activez le mode avion + luminosité max. La page sauvegarde automatiquement. Exportez en fin de prestation.
+          Conseils terrain: activez le mode avion + luminosité max. La page
+          sauvegarde automatiquement. Exportez en fin de prestation.
         </div>
       </div>
     </div>
